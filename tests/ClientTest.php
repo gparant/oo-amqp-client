@@ -6,8 +6,10 @@ use Mouf\AmqpClient\Client;
 use Mouf\AmqpClient\Consumer;
 use Mouf\AmqpClient\ConsumerService;
 use PhpAmqpLib\Message\AMQPMessage;
+use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 
-class ClientTest extends \PHPUnit_Framework_TestCase
+class ClientTest extends TestCase
 {
     /**
      * @var Client
@@ -30,21 +32,25 @@ class ClientTest extends \PHPUnit_Framework_TestCase
     private $deadLetterMsgReceived;
     private $triggerException = false;
 
-    private function makeClient()
+    private function makeClient($port = null)
     {
         global $rabbitmq_host;
         global $rabbitmq_port;
         global $rabbitmq_user;
         global $rabbitmq_password;
 
-        $client = new Client($rabbitmq_host, $rabbitmq_port, $rabbitmq_user, $rabbitmq_password);
+        if (!$port) {
+            $port = $rabbitmq_port;
+        }
+
+        $client = new Client($rabbitmq_host, $port, $rabbitmq_user, $rabbitmq_password);
         $client->setPrefetchCount(1);
         return $client;
     }
 
-    protected function init()
+    protected function init($port = null)
     {
-        $this->client = $this->makeClient();
+        $this->client = $this->makeClient($port);
         $this->exchange = new Exchange($this->client, 'test_exchange', 'fanout');
         $this->queue = new Queue($this->client, 'test_queue', [
             new Consumer(function(AMQPMessage $msg) {
@@ -52,7 +58,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase
                 if ($this->triggerException) {
                     throw new \Exception('boom!');
                 }
-            })
+            }, new NullLogger())
         ]);
         $this->queue->setDurable(true);
 
@@ -65,7 +71,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase
         $this->deadLetterQueue = new Queue($this->client, 'test_dead_letter_queue', [
             new Consumer(function(AMQPMessage $msg) {
                 $this->deadLetterMsgReceived = $msg;
-            })
+            }, new NullLogger())
         ]);
         $this->deadLetterQueue->setDurable(true);
 
@@ -79,6 +85,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase
     {
         $this->init();
         $this->exchange->publish(new Message('my message'), 'key');
+        $this->assertTrue(true);
     }
 
     /**
@@ -135,7 +142,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase
         $queue = new Queue($client, 'test_direct_queue', [
             new Consumer(function(AMQPMessage $msg) {
                 $this->msgReceived = $msg;
-            })
+            }, new NullLogger())
         ]);
 
         // The key is the name of the queue.
@@ -154,9 +161,9 @@ class ClientTest extends \PHPUnit_Framework_TestCase
     {
         $client = $this->makeClient();
         $queue = new Queue($client, 'test_direct_queue', [
-            new Consumer(function(AMQPMessage $msg) {
+            new Consumer(function (AMQPMessage $msg) {
                 $this->msgReceived = $msg;
-            })
+            }, new NullLogger())
         ]);
 
         // The key is the name of the queue.
@@ -169,5 +176,22 @@ class ClientTest extends \PHPUnit_Framework_TestCase
         $consumerService->run(true);
 
         $this->assertEquals('hello', $this->msgReceived->getBody());
+    }
+
+    /**
+     * @expectedException \Mouf\AmqpClient\Exception\ConnectionException
+     */
+    public function testConnectionException()
+    {
+        // A bug in PHPUnit prevents us for disabling warning to exceptions conversion when processIsolation is set.
+        // Sockets are throwing warning before the exception. Hence, the test is failing.
+        // Let's skip the test if sockets are enabled.
+        if (function_exists('socket_create')) {
+            $this->markTestSkipped('Skipping test because of a bug in PHPUnit regarding warning handling');
+            return;
+        }
+
+        $this->init(1242000042);
+        $this->client->getChannel();
     }
 }

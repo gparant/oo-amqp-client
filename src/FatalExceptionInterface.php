@@ -1,11 +1,14 @@
 <?php
+/**
+ * Created by PhpStorm.
+ * User: grp
+ * Date: 24/01/2018
+ * Time: 19:45
+ */
 
 namespace Mouf\AmqpClient;
 
-/**
- * When an exception implementing this interface is thrown, the consumer will propagate the exception (so the script
- * will stop). Useful to halt a consumer script if the database connection has timed out.
- */
+
 interface FatalExceptionInterface
 {
     /**
